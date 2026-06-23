@@ -269,7 +269,6 @@ end
 ---@private
 ---@return boolean
 function stats:stats_fps()
-	if not self.config.stats_fps then return false end
 	local current_frame = GameGetFrameNum()
 	if current_frame % 30 == 0 then
 		local current_time = GameGetRealWorldTimeSinceStarted()
@@ -278,6 +277,7 @@ function stats:stats_fps()
 		self.stats.fps_last_frame = current_frame
 		self.stats.fps_last_update_time = current_time
 	end
+	if not self.config.stats_fps then return false end
 	self:entry("FPS: " .. self.stats.fps, self:get_text_dim("FPS: 60"))
 	return true
 end
