@@ -63,6 +63,8 @@ end
 
 local reactions_data = {} ---@type {[string]:gui_reaction_data}
 local filtered_materials = nil
+-- Lowercased searchable text per material index (id + raw ui_name + localized name). The localized name depends on language, so this is cleared on language change.
+local search_text_cache = {}
 
 ---Returns true if the name is a tag reference like "[tag]".
 ---@param name string
@@ -191,9 +193,22 @@ end
 function materials:is_material_in_filter(material_index, filter)
 	local material = self.mat:get_data(material_index)
 	if not self.materials.visible_types[material.type] then return end
-	if material.id:lower():find(filter, 1, true) then return true end
-	if material.ui_name:lower():find(filter, 1, true) then return true end
-	if self:locale(material.ui_name):lower():find(filter, 1, true) then return true end
+	return self:material_search_text(material_index, material):find(filter, 1, true) ~= nil
+end
+
+---Returns the cached lowercased searchable text for a material (id + raw + localized name).
+---Built once per material; the localized part is invalidated on language change.
+---@private
+---@param material_index integer
+---@param material material_data
+---@return string
+function materials:material_search_text(material_index, material)
+	local cached = search_text_cache[material_index]
+	if cached then return cached end
+	-- "\n" separates fields so a filter can't match across the id/name boundary.
+	local text = (material.id .. "\n" .. material.ui_name .. "\n" .. self:locale(material.ui_name)):lower()
+	search_text_cache[material_index] = text
+	return text
 end
 
 ---Returns (and lazily builds) the filtered material list.
@@ -206,6 +221,8 @@ function materials:get_filtered_materials()
 		for material_index, _ in pairs(self.mat.data) do
 			if self:is_material_in_filter(material_index, filter) then result[#result + 1] = material_index end
 		end
+		-- self.mat.data is a gapped integer-keyed table, so pairs() order is arbitrary.
+		table.sort(result)
 		filtered_materials = result
 	end
 	return filtered_materials
@@ -824,7 +841,11 @@ end
 ---Clears reaction data cache on language change.
 ---@param did_language_changed boolean
 function materials:materials_update(did_language_changed)
-	if did_language_changed then reactions_data = {} end
+	if did_language_changed then
+		reactions_data = {}
+		search_text_cache = {}
+		filtered_materials = nil
+	end
 end
 
 ---Parses the AP/LC and (when Apotheosis is enabled) apothecary-elixir recipes shown
