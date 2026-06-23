@@ -31,6 +31,7 @@ local keycodes = {
 	ctrl_l = 224,
 	ctrl_r = 228,
 	a = 4,
+	c = 6,
 	v = 25,
 	x = 27,
 }
@@ -150,6 +151,19 @@ function textbox:clear_selection()
 	self.selection_end = nil
 end
 
+---Returns the currently selected substring, or nil if nothing is selected.
+---@private
+---@param text string
+---@return string?
+function textbox:selection_text(text)
+	local selection_start, selection_end = self.selection_start, self.selection_end
+	if not selection_start or not selection_end then return nil end
+	local s = math.min(selection_start, selection_end)
+	local e = math.max(selection_start, selection_end)
+	if s == e then return nil end
+	return text:sub(s, e - 1)
+end
+
 ---Deletes selected
 ---@private
 ---@param text string
@@ -208,12 +222,14 @@ function textbox:process_keys(text)
 			end
 		end
 		if InputIsKeyJustDown(keycodes.x) then
-			if imgui then imgui.SetClipboardText(text) end
+			if imgui then imgui.SetClipboardText(self:selection_text(text) or text) end
 			if self.selection_start then return self:delete_selection(text) end
-			if #text > 0 and self.cursor_pos > 1 then
-				text = text:sub(1, self.cursor_pos - 2) .. text:sub(self.cursor_pos)
-				self.cursor_pos = math.max(1, self.cursor_pos - 1)
-			end
+			self.cursor_pos = 1
+			return ""
+		end
+		-- copy: selection, or the whole field when nothing is selected
+		if InputIsKeyJustDown(keycodes.c) then
+			if imgui then imgui.SetClipboardText(self:selection_text(text) or text) end
 			return text
 		end
 		if InputIsKeyJustDown(keycodes.a) then -- 'a'
