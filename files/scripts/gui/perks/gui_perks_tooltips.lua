@@ -18,6 +18,21 @@ end
 ---@private
 ---@param perk perk_data
 function pg:perks_current_perk_tooltip(perk)
+	self:perks_perk_tooltip(perk)
+end
+
+---Tooltip for a future/rerolled perk with prediction-specific details.
+---@private
+---@param predicted {perk:perk_data, gamble:string[]?}
+function pg:perks_predicted_perk_tooltip(predicted)
+	self:perks_perk_tooltip(predicted.perk, predicted.gamble)
+end
+
+---Shared normal/predicted perk tooltip body.
+---@private
+---@param perk perk_data
+---@param gamble string[]?
+function pg:perks_perk_tooltip(perk, gamble)
 	local ui_name = self:locale(perk.ui_name)
 	local description_lines = self:split_string(self:locale(perk.ui_description), 200)
 	local picked_count = T.PerkCount .. ": " .. perk.picked_count
@@ -25,9 +40,11 @@ function pg:perks_current_perk_tooltip(perk)
 	local reminder = self.alt and "" or T.PressShiftToSeeMore
 	local longest = math.max(self:get_text_dim(ui_name), self:get_text_dim(id), self:get_text_dim(reminder))
 	longest = math.max(longest, self:get_longest_text(description_lines, perk.ui_description))
+	longest = self:perks_gamble_width(gamble, longest)
 
 	self:perk_tip_header(perk, ui_name, longest)
 	self:perk_tip_description_block(id, description_lines, longest)
+	self:perks_gamble_block(gamble, longest)
 
 	self:spacing(2)
 	self:color(1, 1, 1)
@@ -51,12 +68,14 @@ function pg:perks_nearby_tooltip(nearby_perk)
 	local picked_count = T.PerkCount .. ": " .. perk.picked_count
 	local id = self.alt and string.format("(%s)", perk.id) or ""
 	local reminder = self.alt and "" or T.PressShiftToSeeMore
-	local always_cast_result = nearby_perk.cast
-		or (self.config.always_show_always_cast and self.perks.nearby:PredictAlwaysCast(nearby_perk.x, nearby_perk.y) or nil)
+	local always_cast_result = nearby_perk.id == "ALWAYS_CAST"
+		and (nearby_perk.cast or self.perks.nearby:PredictAlwaysCast(nearby_perk.x, nearby_perk.y)) or nil
 	local always_cast_text = always_cast_result and T.lamas_stats_perks_always_cast .. ":" or nil
+	local gamble = nearby_perk.id == "GAMBLE" and (nearby_perk.gamble or self.perks.predict.current_gamble_perks) or nil
 	local longest = math.max(self:get_text_dim(ui_name), self:get_text_dim(id), self:get_text_dim(reminder))
 	if always_cast_text then longest = math.max(longest, self:get_text_dim(always_cast_text)) end
 	longest = math.max(longest, self:get_longest_text(description_lines, perk.ui_description))
+	longest = self:perks_gamble_width(gamble, longest)
 
 	self:perk_tip_header(perk, ui_name, longest)
 
@@ -67,6 +86,7 @@ function pg:perks_nearby_tooltip(nearby_perk)
 	end
 
 	self:perk_tip_description_block(id, description_lines, longest)
+	self:perks_gamble_block(gamble, longest)
 
 	if self.config.enable_nearby_always_cast and always_cast_text then
 		local cast_data = self.actions:get_data(always_cast_result --[[@as string]])
@@ -99,6 +119,59 @@ function pg:perks_nearby_tooltip(nearby_perk)
 	else
 		self:alt_hint()
 	end
+end
+
+---Returns the tooltip width needed by a Gamble result block.
+---@private
+---@param gamble string[]?
+---@param width number
+---@return number
+function pg:perks_gamble_width(gamble, width)
+	if not gamble or #gamble == 0 then return width end
+	width = math.max(width, self:get_text_dim(T.lamas_stats_perks_gamble))
+	if not self.alt then return width end
+	for i = 1, #gamble do
+		local perk = self.perks.data:get_data(gamble[i])
+		local text = string.format("%s (%s)", self:locale(perk.ui_name), gamble[i])
+		width = math.max(width, self:get_text_dim(text) + 19)
+	end
+	return width
+end
+
+---Draws Gamble's two predicted perk icons and optional alt-mode details.
+---@private
+---@param gamble string[]?
+---@param width number
+function pg:perks_gamble_block(gamble, width)
+	if not gamble or #gamble == 0 then return end
+	self:spacing(3)
+	self:perk_tip_line(T.lamas_stats_perks_gamble, width, true)
+
+	if self.alt then
+		for i = 1, #gamble do
+			local perk_id = gamble[i]
+			local perk = self.perks.data:get_data(perk_id)
+			local _, text_height = self:get_text_dim(self:locale(perk.ui_name))
+			self:begin_centered_row(width, function()
+				self:color(1, 1, 1)
+				self:tooltip_icon_cell(perk.perk_icon, text_height)
+				self:spacing(3)
+				self:text(self:locale(perk.ui_name))
+				self:spacing(3)
+				self:color_gray()
+				self:text("(" .. perk_id .. ")")
+			end)
+		end
+		return
+	end
+
+	self:begin_centered_row(width, function()
+		self:color(1, 1, 1)
+		for i = 1, #gamble do
+			if i > 1 then self:spacing(3) end
+			self:tooltip_icon_cell(self.perks.data:get_data(gamble[i]).perk_icon, 16)
+		end
+	end)
 end
 
 ---Draws the perks physically near the player in wrapping rows (matching

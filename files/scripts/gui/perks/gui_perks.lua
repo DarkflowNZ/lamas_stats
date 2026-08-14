@@ -9,6 +9,7 @@
 ---@field cache perk_cell[][]?  built groups for cache_view (nil = needs build)
 ---@field cache_view integer?  which view cache holds
 ---@field cache_dirty boolean  perks data changed; rebuild on next draw
+---@field world_icons_synced boolean
 
 ---@class (exact) LS_Gui
 ---@field perk LS_Gui_perks
@@ -24,6 +25,7 @@ local pg = {
 		cache = nil,
 		cache_view = nil,
 		cache_dirty = true,
+		world_icons_synced = false,
 	},
 }
 
@@ -32,6 +34,17 @@ local GROUP_PAD = 1 -- padding above/below each striped group
 local BTN = "mods/lamas_stats/files/gfx/ui_9piece_button_alt.png"
 local BTN_HL = "mods/lamas_stats/files/gfx/ui_9piece_button_alt_highlight.png"
 local ALWAYS_CAST = "ALWAYS_CAST"
+local WORLD_ICON_TAG = "lamas_stats_perk_prediction_icon"
+local ACTION_BG = {
+	[0] = "data/ui_gfx/inventory/item_bg_projectile.png",
+	[1] = "data/ui_gfx/inventory/item_bg_static_projectile.png",
+	[2] = "data/ui_gfx/inventory/item_bg_modifier.png",
+	[3] = "data/ui_gfx/inventory/item_bg_draw_many.png",
+	[4] = "data/ui_gfx/inventory/item_bg_material.png",
+	[5] = "data/ui_gfx/inventory/item_bg_other.png",
+	[6] = "data/ui_gfx/inventory/item_bg_utility.png",
+	[7] = "data/ui_gfx/inventory/item_bg_passive.png",
+}
 
 -- A cell is { perk = perk_data, tip = fn(self,arg)?, arg = any }. A group is a
 -- cell[]; a view's build() returns group[]. `striped` views (the predicted
@@ -160,7 +173,9 @@ function pg:perks_build_future()
 		local cells = {}
 		for j = 1, #ids do
 			local perk = self.perks.data:get_data(ids[j])
-			cells[j] = { perk = perk, tip = self.perks_current_perk_tooltip, arg = perk }
+			local gamble = ids[j] == "GAMBLE" and self.perks.predict.future_gamble_perks[g] or nil
+			cells[j] = gamble and { perk = perk, tip = self.perks_predicted_perk_tooltip, arg = { perk = perk, gamble = gamble } }
+				or { perk = perk, tip = self.perks_current_perk_tooltip, arg = perk }
 		end
 		groups[g] = cells
 	end
@@ -202,10 +217,15 @@ function pg:perks_reroll_slot(group_index, ids, slot)
 			y = nearby_data.y,
 			id = perk_id,
 			cast = perk_id == ALWAYS_CAST and self.perks.nearby:PredictAlwaysCast(nearby_data.x, nearby_data.y) or nil,
+			gamble = perk_id == "GAMBLE" and self.perks.predict.reroll_gamble_perks[group_index] or nil,
 		}
 		return self.perks.data:get_data(perk_id), self.perks_nearby_tooltip, this_data
 	end
 	local perk = self.perks.data:get_data(ids[slot])
+	if perk.id == "GAMBLE" then
+		return perk, self.perks_predicted_perk_tooltip,
+			{ perk = perk, gamble = self.perks.predict.reroll_gamble_perks[group_index] }
+	end
 	return perk, self.perks_current_perk_tooltip, perk
 end
 
@@ -213,7 +233,6 @@ end
 function pg:perks_draw_window()
 	local m = self.menu
 	local nearby_count = #self.perks.nearby.entities
-	self:check_for_updates(nearby_count)
 
 	local header_width, header_h = self:window(function()
 		self:spacing(1)
@@ -282,14 +301,18 @@ end
 
 ---Triggers a data update if nearby perks, children, or reroll count changed.
 ---@private
----@param current_nearby_perks number
-function pg:check_for_updates(current_nearby_perks)
+---@param force boolean?
+---@return boolean changed
+function pg:check_for_updates(force)
 	local reroll_count = self.mod:GetGlobalNumber("TEMPLE_PERK_REROLL_COUNT")
-	self.perks.nearby:Scan()
-	if current_nearby_perks ~= #self.perks.nearby.entities or self:check_perk_picked() or reroll_count ~= self.perk.reroll_count then
+	local nearby_changed = self.perks.nearby:Scan()
+	local picked = self:check_perk_picked()
+	local changed = force or nearby_changed or picked or reroll_count ~= self.perk.reroll_count
+	if changed then
 		self:perks_update()
 	end
 	self.perk.reroll_count = reroll_count
+	return changed
 end
 
 ---Updates perks data and invalidates the view cache.
@@ -302,7 +325,82 @@ end
 
 ---Initializes perks data.
 function pg:perks_init()
-	self:check_for_updates(-1)
+	self:check_for_updates(true)
+end
+
+---Removes Lama's Stats prediction sprites from loaded perk entities.
+---@private
+function pg:perks_clear_world_icons()
+	local entities = EntityGetWithTag("perk")
+	for i = 1, #entities do
+		local components = EntityGetComponentIncludingDisabled(entities[i], "SpriteComponent", WORLD_ICON_TAG) or {}
+		for j = 1, #components do EntityRemoveComponent(entities[i], components[j]) end
+	end
+	self.perk.world_icons_synced = false
+end
+
+---Adds one prediction icon to a perk entity; its existing animator bobs it.
+---@private
+---@param entity_id entity_id
+---@param sprite string
+---@param background string
+---@param side integer -1 for upper-left, 1 for upper-right
+---@param sprite_size integer 16 for perk icons, 20 for spell icons
+function pg:perks_add_world_icon(entity_id, sprite, background, side, sprite_size)
+	local shift = side * 10
+	EntityAddComponent2(entity_id, "SpriteComponent", {
+		_tags = WORLD_ICON_TAG,
+		image_file = background,
+		offset_x = 10 - shift,
+		offset_y = 30,
+		update_transform = true,
+		update_transform_rotation = false,
+		has_special_scale = true,
+		special_scale_x = 0.5,
+		special_scale_y = 0.5,
+		alpha = 0.85,
+		emissive = true,
+		z_index = -1,
+	})
+	EntityAddComponent2(entity_id, "SpriteComponent", {
+		_tags = WORLD_ICON_TAG,
+		image_file = sprite,
+		offset_x = sprite_size / 2 - shift,
+		offset_y = sprite_size / 2 + 20,
+		update_transform = true,
+		update_transform_rotation = false,
+		has_special_scale = true,
+		special_scale_x = 0.5,
+		special_scale_y = 0.5,
+		emissive = true,
+		z_index = -1.1,
+	})
+end
+
+---Rebuilds engine-rendered prediction icons on physical nearby perks.
+---@private
+function pg:perks_sync_world_icons()
+	self:perks_clear_world_icons()
+	local gamble = self.perks.predict.current_gamble_perks
+	for i = 1, #self.perks.nearby.data do
+		local nearby = self.perks.nearby.data[i]
+		if nearby.entity_id and nearby.id == "GAMBLE" and gamble then
+			for result_index = 1, math.min(2, #gamble) do
+				local perk = self.perks.data:get_data(gamble[result_index])
+				self:perks_add_world_icon(nearby.entity_id, perk.perk_icon, ACTION_BG[5], result_index == 1 and -1 or 1, 16)
+			end
+		elseif nearby.entity_id and nearby.id == ALWAYS_CAST and nearby.cast and self.config.enable_nearby_always_cast then
+			local action = self.actions:get_data(nearby.cast)
+			self:perks_add_world_icon(nearby.entity_id, action.sprite, ACTION_BG[action.type] or ACTION_BG[5], 1, 20)
+		end
+	end
+	self.perk.world_icons_synced = true
+end
+
+---Keeps physical perk data and its engine-rendered prediction icons current.
+function pg:perks_world_update()
+	local changed = self:check_for_updates()
+	if changed or not self.perk.world_icons_synced then self:perks_sync_world_icons() end
 end
 
 ---Perks summary row; always drawn (even as zeroes) to keep header width stable.

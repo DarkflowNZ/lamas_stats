@@ -136,7 +136,10 @@ end
 function gui:loop()
 	self:start_frame()
 	self.player = EntityGetWithTag("player_unit")[1]
-	if not self.player then return self:end_frame() end
+	if not self.player then
+		if self.perk.world_icons_synced then self:perks_clear_world_icons() end
+		return self:end_frame()
+	end
 
 	if self.textbox.controls_disabled then self.textbox:enable_controls() end
 
@@ -144,12 +147,20 @@ function gui:loop()
 	self:check_for_checkers()
 	if self:sampler() then self:spawn_getter() end
 
-	if not self.show or GameIsInventoryOpen() then return self:end_frame() end
+	if not self.show or GameIsInventoryOpen() then
+		if self.perk.world_icons_synced then self:perks_clear_world_icons() end
+		return self:end_frame()
+	end
 
 	self:fetch_data()
 	self:determine_alt_mode()
 
 	self:set_z(self.z_index - 100)
+	if self.config.show_perks_menu then
+		self:perks_world_update()
+	elseif self.perk.world_icons_synced then
+		self:perks_clear_world_icons()
+	end
 	self:header_draw()
 	if self.config.stats_enable then self:stats_draw() end
 	if self.menu.opened then self:menu_draw() end
