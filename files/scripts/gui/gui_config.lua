@@ -36,7 +36,6 @@ local config = {
 				"enable_nearby_perks",
 				"enable_nearby_lottery",
 				"enable_nearby_always_cast",
-				"always_show_always_cast",
 			},
 		},
 		unfolded = {
@@ -80,6 +79,7 @@ function config:config_draw_config(entry)
 		local new_value = not value
 		self.config[entry] = new_value
 		self.mod:SetModSetting(entry, new_value)
+		if entry == "enable_nearby_always_cast" then self.perk.world_icons_synced = false end
 	end
 	self:spacing(3)
 end

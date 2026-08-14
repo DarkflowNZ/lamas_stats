@@ -3,6 +3,7 @@
 ---@field id string
 ---@field lottery? boolean
 ---@field cast? string
+---@field entity_id? entity_id
 ---@field x number x position of perk to sort them how they appears in game
 ---@field y number y position
 ---@field spawn_order number used to determine reroll position more accurately
@@ -17,11 +18,25 @@ local scanner = {
 }
 
 ---Scans nearby entities
+---@return boolean changed
 function scanner:Scan()
 	local player = EntityGetWithTag("player_unit")[1]
-	if not player then return end
+	if not player then return false end
 	local x, y = EntityGetTransform(player)
-	self.entities = EntityGetInRadiusWithTag(x, y, 350, "perk")
+	local entities = EntityGetInRadiusWithTag(x, y, 350, "perk")
+	local changed = #entities ~= #self.entities
+	if not changed then
+		local previous = {}
+		for i = 1, #self.entities do previous[self.entities[i]] = true end
+		for i = 1, #entities do
+			if not previous[entities[i]] then
+				changed = true
+				break
+			end
+		end
+	end
+	self.entities = entities
+	return changed
 end
 
 ---Parses entities found nearby
@@ -32,6 +47,7 @@ function scanner:ParseEntities()
 		local x, y = EntityGetTransform(entity_id)
 		local id = self:GetPerkId(entity_id)
 		parsed[#parsed + 1] = {
+			entity_id = entity_id,
 			x = x or i,
 			y = y or 0,
 			id = id,
