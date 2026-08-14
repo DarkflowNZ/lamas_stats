@@ -6,7 +6,7 @@ By default this mod only serves as a QOL mod, but can be further expanded into a
 ![overlay](showcase/overlay.png)
 ### Installation
 
-- Press the [Download](https://github.com/lamia-zamia/lamas_stats/archive/refs/heads/main.zip) button
+- Press the [Download](https://github.com/darkflownz/lamas_stats/archive/refs/heads/main.zip) button
 - Extract the contents into your Noita `mods` folder.
 - Rename the folder from `lamas_stats-main` to `lamas_stats`.
 
